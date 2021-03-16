@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, redirect
 from flask import request
 
 from twilio.twiml.voice_response import VoiceResponse
@@ -18,7 +18,6 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from werkzeug.utils import redirect
 
 load_dotenv()
 
@@ -44,11 +43,11 @@ def recording_by_sid(sid):
         client = Client(account_sid, auth_token)
         recording = client.recordings(sid).fetch()
         print('recording found', recording.date_created)
-        recording.url = "https://api.twilio.com{}".format(recording.uri.replace('.json', ''))
+        recording_url = "https://api.twilio.com{}".format(recording.uri.replace('.json', ''))
         decrypted_recording_name = recording.sid + '_decrypted.wav'
 
         if not decrypted_recording_exists(decrypted_recording_name):
-            decrypt_recording(recording.encryption_details, recording.url, recording.sid)
+            decrypt_recording(recording.encryption_details, recording_url, recording.sid)
 
         return render_template(
             'recording.html',
@@ -63,17 +62,17 @@ def recording_by_sid(sid):
         return redirect('/')
 
 
-
 @app.route("/handle_incoming_call", methods=['GET', 'POST'])
 def handle_incoming_call():
     print('call received')
     response = VoiceResponse()
-    greet_caller(response)
-    
+    response.say("Hi, I can't come to the phone right now, please leave a message after the beep")
+    response.pause(length=3)
+
     response.record(
         recording_status_callback='/recording_status_callback',
         recording_status_callback_event='completed')
-    
+
     response.hangup()
     return str(response)
 
@@ -81,13 +80,7 @@ def handle_incoming_call():
 @app.route("/recording_status_callback", methods=['GET', 'POST'])
 def recording_status_callback():
     pprint(request.form)
-    return str('callback')
-
-
-
-def greet_caller(response):
-    response.say("Hi, I can't come to the phone right now, please leave a message after the beep")
-    response.pause(length=3)
+    return ''
 
 
 def get_recordings():
@@ -95,16 +88,16 @@ def get_recordings():
     recordings = client.recordings.list()
     all_recordings = []
     for record in recordings:
-        rec = {
-            'date_created': record.date_created,
-            'sid': record.sid,
-            'duration': record.duration,
-            'status': record.status,
-            'price': record.price,
-            'path': "/recording/{}".format(record.sid)
-
-        }
-        all_recordings.append(rec)
+        if record.encryption_details is not None:
+            rec = {
+                'date_created': record.date_created,
+                'sid': record.sid,
+                'duration': record.duration,
+                'status': record.status,
+                'price': record.price,
+                'path': "/recording/{}".format(record.sid)
+            }
+            all_recordings.append(rec)
     return all_recordings
 
 
@@ -170,7 +163,6 @@ def delete_recording(sid):
                 print(f, ' file deleted')
         except OSError as e:
             print("Error: %s : %s" % (f, e.strerror))
-
 
 
 if __name__ == "__main__":
